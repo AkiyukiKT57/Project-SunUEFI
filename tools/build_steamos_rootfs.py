@@ -198,7 +198,26 @@ def build(args):
                 # The VR session also claims plasma.desktop, now supplied by
                 # the ordinary Plasma package used on the tablet.
                 guest(['pacman', '-Rdd', '--noconfirm', obsolete])
-        guest(['pacman', '-Syu', '--noconfirm'])
+        def sync_packages(*flags):
+            """Run one pacman transaction; report the failure instead of aborting."""
+            try:
+                guest(['pacman', *flags, '--noconfirm'])
+                return True
+            except subprocess.CalledProcessError as error:
+                print(f':: pacman {" ".join(flags)} failed ({error.returncode})',
+                      flush=True)
+                return False
+
+        # The pinned Valve base image can be ahead of the public deckard channel, so a
+        # plain -Syu has to reconcile a mixed cohort and aborts. Refresh the keyring
+        # first, then escalate only as far as the repository requires.
+        if not sync_packages('-Syy'):
+            raise SystemExit('pacman could not refresh the package databases')
+        sync_packages('-S', '--needed', 'archlinux-keyring')
+        if not (sync_packages('-Su') or
+                sync_packages('-Su', '--overwrite', '*') or
+                sync_packages('-Syuu', '--overwrite', '*')):
+            raise SystemExit('pacman could not refresh the Valve package cohort')
         packages = ['base-devel',
                'sddm', 'openssh', 'bluez', 'bluez-utils', 'networkmanager', 'wpa_supplicant',
                'alsa-utils', 'pipewire', 'pipewire-pulse', 'wireplumber',

@@ -72,6 +72,12 @@ jobs:
         with:
           submodules: false
           persist-credentials: false
+      - name: Cache the pinned Valve base image
+        if: matrix.target == 'steamos'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: build/steamos-base-*
+          key: steamos-base-${{ runner.arch }}-${{ hashFiles('config/steamos.json') }}
       - name: Get only required fixed sources
         run: ./build.sh sources
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
@@ -137,7 +143,7 @@ jobs:
           if [ -f build/logs/ci-build.log ]; then
             tail -n 160 build/logs/ci-build.log
           fi
-          for log in build/distros/release.build.log build/ffmpeg/build.log build/gsd/build.log build/mutter/build.log; do
+          for log in build/distros/release.build.log build/ffmpeg/build.log build/gsd/build.log build/mutter/build.log build/distros/steamos-piano/build.log; do
             if [ -f "$log" ]; then
               echo "::group::$log"
               tail -n 100 "$log"
