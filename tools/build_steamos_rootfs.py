@@ -187,37 +187,23 @@ def build(args):
                          if re.fullmatch(r'linux-[0-9]+-(?:v4l2loopback-)?deckard', p)]
         if frame_kernels:
             guest(['pacman', '-R', '--noconfirm', *frame_kernels])
-        # Refresh the complete Valve package cohort before building local
-        # adapters against it. Partial package upgrades can mix library ABIs.
-        # Frame split these files into clang-libs; the public repository now
-        # ships them in clang itself. Remove that obsolete split package before
-        # the full transaction, which installs the current compiler and libs.
-        for obsolete in ('clang-libs', 'deckard-steamvr-session'):
-            if subprocess.run(['chroot', root, 'pacman', '-Qq', obsolete],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-                # The VR session also claims plasma.desktop, now supplied by
-                # the ordinary Plasma package used on the tablet.
-                guest(['pacman', '-Rdd', '--noconfirm', obsolete])
-        def sync_packages(*flags):
-            """Run one pacman transaction; report the failure instead of aborting."""
-            try:
-                guest(['pacman', *flags, '--noconfirm'])
-                return True
-            except subprocess.CalledProcessError as error:
-                print(f':: pacman {" ".join(flags)} failed ({error.returncode})',
-                      flush=True)
-                return False
-
-        # The pinned Valve base image can be ahead of the public deckard channel, so a
-        # plain -Syu has to reconcile a mixed cohort and aborts. Refresh the keyring
-        # first, then escalate only as far as the repository requires.
-        if not sync_packages('-Syy'):
-            raise SystemExit('pacman could not refresh the package databases')
-        sync_packages('-S', '--needed', 'archlinux-keyring')
-        if not (sync_packages('-Su') or
-                sync_packages('-Su', '--overwrite', '*') or
-                sync_packages('-Syuu', '--overwrite', '*')):
-            raise SystemExit('pacman could not refresh the Valve package cohort')
+        # Frame's VR session claims plasma.desktop, which the ordinary Plasma
+        # package used on the tablet also provides; drop it before installing.
+        if subprocess.run(['chroot', root, 'pacman', '-Qq',
+                           'deckard-steamvr-session'],
+                          stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL).returncode == 0:
+            guest(['pacman', '-Rdd', '--noconfirm', 'deckard-steamvr-session'])
+        # Do not upgrade the Valve cohort here. The pinned base image is newer
+        # than the public deckard channel for most packages, and its holo-*
+        # packages pin exact versions: holo-glibc-locales requires
+        # glibc=2.43+r5 while the channel ships 2.43+r22, so any full upgrade
+        # aborts with "failed to prepare transaction (could not satisfy
+        # dependencies)". Keep the coherent cohort -- clang-libs stays, because
+        # the installed clang still owns those files -- and let the -T check
+        # below install only what this build actually needs.
+        guest(['pacman', '-Syy', '--noconfirm'])
+        guest(['pacman', '-S', '--needed', '--noconfirm', 'archlinux-keyring'])
         packages = ['base-devel',
                'sddm', 'openssh', 'bluez', 'bluez-utils', 'networkmanager', 'wpa_supplicant',
                'alsa-utils', 'pipewire', 'pipewire-pulse', 'wireplumber',
