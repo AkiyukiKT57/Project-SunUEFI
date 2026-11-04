@@ -187,23 +187,26 @@ def build(args):
                          if re.fullmatch(r'linux-[0-9]+-(?:v4l2loopback-)?deckard', p)]
         if frame_kernels:
             guest(['pacman', '-R', '--noconfirm', *frame_kernels])
-        # Frame's VR session claims plasma.desktop, which the ordinary Plasma
-        # package used on the tablet also provides; drop it before installing.
-        if subprocess.run(['chroot', root, 'pacman', '-Qq',
-                           'deckard-steamvr-session'],
-                          stdout=subprocess.DEVNULL,
-                          stderr=subprocess.DEVNULL).returncode == 0:
-            guest(['pacman', '-Rdd', '--noconfirm', 'deckard-steamvr-session'])
-        # Do not upgrade the Valve cohort here. The pinned base image is newer
-        # than the public deckard channel for most packages, and its holo-*
-        # packages pin exact versions: holo-glibc-locales requires
-        # glibc=2.43+r5 while the channel ships 2.43+r22, so any full upgrade
-        # aborts with "failed to prepare transaction (could not satisfy
-        # dependencies)". Keep the coherent cohort -- clang-libs stays, because
-        # the installed clang still owns those files -- and let the -T check
-        # below install only what this build actually needs.
-        guest(['pacman', '-Syy', '--noconfirm'])
-        guest(['pacman', '-S', '--needed', '--noconfirm', 'archlinux-keyring'])
+        # Refresh the complete Valve package cohort before building local
+        # adapters against it. Partial package upgrades can mix library ABIs.
+        # Frame split these files into clang-libs; the public repository now
+        # ships them in clang itself. Remove that obsolete split package before
+        # the full transaction, which installs the current compiler and libs.
+        for obsolete in ('clang-libs', 'deckard-steamvr-session'):
+            if subprocess.run(['chroot', root, 'pacman', '-Qq', obsolete],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                # The VR session also claims plasma.desktop, now supplied by
+                # the ordinary Plasma package used on the tablet.
+                guest(['pacman', '-Rdd', '--noconfirm', obsolete])
+        # Valve's holo-glibc-locales pins an exact glibc version, so the full
+        # transaction cannot satisfy that pin once the repository ships a newer
+        # glibc (installing glibc breaks a dependency of the installed locales
+        # package). Release it first: the regular glibc package carries the
+        # locale sources and locale-gen runs later in this build.
+        if subprocess.run(['chroot', root, 'pacman', '-Qq', 'holo-glibc-locales'],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+            guest(['pacman', '-Rdd', '--noconfirm', 'holo-glibc-locales'])
+        guest(['pacman', '-Syu', '--noconfirm'])
         packages = ['base-devel',
                'sddm', 'openssh', 'bluez', 'bluez-utils', 'networkmanager', 'wpa_supplicant',
                'alsa-utils', 'pipewire', 'pipewire-pulse', 'wireplumber',
